@@ -2845,6 +2845,33 @@ class TestRunConversation:
         assert result["completed"] is True
         assert result["api_calls"] == 2
 
+    def test_invalid_tool_name_exhaustion_activates_fallback(self, agent):
+        """Repeated invalid tool names should try configured fallback before partial failure."""
+        self._setup_agent(agent)
+        bad_responses = [
+            _mock_response(
+                content="",
+                finish_reason="tool_calls",
+                tool_calls=[_mock_tool_call(name="functions", arguments="{}", call_id=f"c{i}")],
+            )
+            for i in range(3)
+        ]
+        resp_good = _mock_response(content="Recovered on fallback", finish_reason="stop")
+        agent.client.chat.completions.create.side_effect = [*bad_responses, resp_good]
+
+        with (
+            patch.object(agent, "_try_activate_fallback", return_value=True) as mock_fallback,
+            patch.object(agent, "_persist_session"),
+            patch.object(agent, "_save_trajectory"),
+            patch.object(agent, "_cleanup_task_resources"),
+        ):
+            result = agent.run_conversation("do something")
+
+        assert result["final_response"] == "Recovered on fallback"
+        assert result["completed"] is True
+        assert agent._invalid_tool_retries == 0
+        mock_fallback.assert_called_once_with(reason=FailoverReason.format_error)
+
     def test_reasoning_only_local_resumed_no_compression_triggered(self, agent):
         """Reasoning-only responses no longer trigger compression — prefill then accepted."""
         self._setup_agent(agent)

@@ -3274,7 +3274,16 @@ def run_conversation(
                     agent._vprint(f"{agent.log_prefix}⚠️  Unknown tool '{invalid_preview}' — sending error to model for agent-correction ({agent._invalid_tool_retries}/3)")
 
                     if agent._invalid_tool_retries >= 3:
-                        agent._vprint(f"{agent.log_prefix}❌ Max retries (3) for invalid tool calls exceeded. Stopping as partial.", force=True)
+                        if agent._try_activate_fallback(reason=FailoverReason.format_error):
+                            agent._vprint(
+                                f"{agent.log_prefix}🔄 Invalid tool calls persisted after 3 retries — "
+                                "activated fallback provider/model and retrying.",
+                                force=True,
+                            )
+                            agent._invalid_tool_retries = 0
+                            continue
+
+                        agent._vprint(f"{agent.log_prefix}❌ Max retries (3) for invalid tool calls exceeded and no fallback is available. Stopping as partial.", force=True)
                         agent._invalid_tool_retries = 0
                         agent._persist_session(messages, conversation_history)
                         return {
